@@ -1,32 +1,20 @@
 import socket
 import threading
-import time
 
-# Variáveis globais para controle
 identification = input("Como você deseja ser identificado? ")
+# Evento para sinalizar desligamento
 shutdown_event = threading.Event()
+# Variável global para o socket do cliente
 client_socket = None
+# Lista para armazenar os sockets dos clientes conectados
 client_sockets = []
-server_host = None
-server_port = None
-is_promoted = False  # Variável para controlar se já houve uma promoção
 
-# Função para receber mensagens
+# Função para receber mensagens do cliente
 def receive_messages(client_socket, client_address):
-    global is_promoted
     while True:
         try:
-            # Recebe a mensagem do cliente
+            # Recebe a mensagem do cliente e a imprime
             message = client_socket.recv(1024).decode('utf-8')
-            if message == "servidor_encerrado":
-                print("O servidor foi desligado. Você será promovido a servidor.")
-                # Verifique se já houve uma promoção
-                if not is_promoted:
-                    is_promoted = True
-                    client_socket.close()
-                    # Inicia servidor local
-                    start_server('localhost', server_port)
-                return
             print(message)
             # Envie a mensagem recebida para todos os outros clientes
             for client in client_sockets:
@@ -36,12 +24,13 @@ def receive_messages(client_socket, client_address):
             print("[Erro]:", e)
             break
 
-# Função para enviar mensagens
+# Função para enviar mensagem
 def send_message(client_socket):
     while True:
         message = input()
         try:
             client_socket.send(f"{identification}: {message}".encode('utf-8'))
+            # Se o cliente digitar "/sair", a conexão é encerrada
             if message.lower() == "/sair":
                 client_socket.close()
                 break
@@ -49,54 +38,37 @@ def send_message(client_socket):
             print("[Erro]:", e)
             break
 
-# Função para desligar o servidor
+
 def shutdown_server(server_socket):
     print("Desligando o servidor...")
+
+    # Sinaliza o desligamento para as threads
     shutdown_event.set()
-    
+
+    # Fechar todos os sockets dos clientes
     for client_socket in client_sockets:
         try:
-            client_socket.send(b"servidor_encerrado")
             client_socket.close()
         except Exception as e:
             print("[Erro ao fechar socket do cliente]:", e)
+
+    # Fechar o socket do servidor
     server_socket.close()
+
+    # Imprimir mensagem de confirmação
     print("Servidor desligado com sucesso.")
 
-# Função para iniciar o cliente
+
+# Função para iniciar a conexão como cliente
 def start_client(server_ip, server_port):
-    global client_socket, is_promoted
+    global client_socket
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client_socket.connect((server_ip, server_port))
         print("Conectado ao servidor.")
-
-        def monitor_server_connection():
-            global is_promoted
-            while not shutdown_event.is_set():
-                try:
-                    # Tenta enviar um ping ao servidor para verificar se está ativo
-                    client_socket.send(b"")
-                except Exception as e:
-                    print("[Erro]: Servidor não responde. Você será promovido a servidor.")
-                    # Verifique se já houve uma promoção
-                    if not is_promoted:
-                        is_promoted = True
-                        client_socket.close()
-                        # Iniciar o servidor local
-                        start_server('localhost', server_port)
-                    return
-                
-                time.sleep(5)
-
-        # Inicia a thread para monitorar a conexão com o servidor
-        monitor_thread = threading.Thread(target=monitor_server_connection)
-        monitor_thread.start()
-
         # Inicia a thread para receber mensagens
         receive_thread = threading.Thread(target=receive_messages, args=(client_socket, server_ip))
         receive_thread.start()
-
         # Inicia a thread para enviar mensagens
         send_thread = threading.Thread(target=send_message, args=(client_socket,))
         send_thread.start()
@@ -104,25 +76,27 @@ def start_client(server_ip, server_port):
         print("[Erro]:", e)
         client_socket.close()
 
-# Função para iniciar o servidor
+
+
 def start_server(host, port):
-    global server_host, server_port, is_promoted
-    server_host = host
-    server_port = port
-    is_promoted = True  # Marca que um servidor já foi iniciado
-    
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    global client_socket
     try:
+        # Liga o socket ao host e porta especificados
         server_socket.bind((host, port))
+        # Coloca o socket em modo de escuta
         server_socket.listen(5)
         print("Servidor aguardando conexões...")
 
+        # Thread para aceitar conexões
         def accept_connections():
             while not shutdown_event.is_set():
                 try:
+                    # Aceita conexão do cliente
                     client_socket, client_address = server_socket.accept()
-                    client_sockets.append(client_socket)
+                    client_sockets.append(client_socket)  # Adiciona o novo cliente à lista
                     print(f"Conexão estabelecida com {client_address}")
+                    # Inicia a thread para receber mensagens
                     receive_thread = threading.Thread(target=receive_messages, args=(client_socket, client_address))
                     receive_thread.start()
                 except OSError as e:
@@ -132,37 +106,40 @@ def start_server(host, port):
                     else:
                         print("[Erro]:", e)
 
+        # Inicia a thread para aceitar conexões
         accept_thread = threading.Thread(target=accept_connections)
         accept_thread.start()
 
+        # Loop para monitorar entrada do usuário
         while True:
             command = input("Digite 'desligar' para encerrar o servidor: ")
             if command.lower() == "desligar":
+                # Chama a função de desligar o servidor
                 shutdown_server(server_socket)
                 break
 
     except Exception as e:
         print("[Erro]:", e)
     finally:
+        # Certifique-se de fechar o socket do servidor
         server_socket.close()
+
 
 # Função para escolher entre ser servidor ou cliente
 def choose_role():
     while True:
         role = input("Digite 's' para servidor ou 'c' para cliente: ")
         if role.lower() == 's':
-            host_server = input("Digite o IP do servidor ou 'localhost' se for na mesma máquina: ")
+            host_server = input("digite o ip do seu servidor ou 'localhost' se for na mesma maquina ")
             if host_server.lower() == 'localhost':
                 host_server = 'localhost'
-            port = int(input("Digite a porta para o servidor: "))
-            start_server(host_server, port)
+            start_server(host_server, int(input("Digite a porta para o servidor: ")))
             break
         elif role.lower() == 'c':
             server_ip = input("Digite o IP do servidor (ou 'localhost' se for na mesma máquina): ")
             if server_ip.lower() == 'localhost':
                 server_ip = 'localhost'
-            server_port = int(input("Digite a porta do servidor: "))
-            start_client(server_ip, server_port)
+            start_client(server_ip, int(input("Digite a porta do servidor: ")))
             break
         else:
             print("Opção inválida. Digite 's' ou 'c'.")
