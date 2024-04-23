@@ -52,6 +52,8 @@ class Cliente:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((peer, 10000))
 
+        self.name = input("Digite seu nome: ")  # Solicita ao usuário que insira seu nome
+
         iThread = threading.Thread(target=self.sendMSG)
         iThread.daemon = True
         iThread.start()
@@ -61,12 +63,12 @@ class Cliente:
             if not data:
                 break
             else:
-                print('Mensagem recebida:', str(data, 'utf-8'))
+                print(self.name, 'recebeu:', str(data, 'utf-8'))
 
     def sendMSG(self):
         while True:
             msg = input("Digite uma mensagem: ")
-            self.sock.send(bytes(msg, 'utf-8'))
+            self.sock.send(bytes(self.name + ": " + msg, 'utf-8'))  # Adiciona o nome à mensagem antes de enviar
 
 class P2P:
     peers = ['127.0.0.1']
