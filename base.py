@@ -12,7 +12,7 @@ class Server:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(('localhost', 10000))
-        sock.listen(1)
+        sock.listen(15)
 
         while True:
             c, a = sock.accept()
