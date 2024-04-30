@@ -1,95 +1,119 @@
 import socket
-import sys
 import threading
-import time
-import random
+import sys
 
 class Server:
-    connections = []  # Lista para rastrear todas as conexões
-    peers = []        # Lista para rastrear os endereços IP dos peers conectados
-
     def __init__(self):
-        # Cria um socket TCP/IP
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Permite reutilização do endereço
-        sock.bind(('localhost', 10000))  # Liga o socket ao endereço localhost na porta 10000
-        sock.listen(15)  # Habilita o socket para aceitar conexões, com um limite de 15 conexões pendentes
+        self.connections = []
+        self.peers = []
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(('0.0.0.0', 10000))
+        self.sock.listen(1)
+        print("Servidor rodando ...")
+
+        self.promptThread = threading.Thread(target=self.promptMsg)
+        self.promptThread.daemon = True
+        self.promptThread.start()
 
         while True:
-            c, a = sock.accept()  # Aceita uma conexão do cliente
-            cThread = threading.Thread(target=self.handler, args=(c, a))  # Cria uma nova thread para lidar com a conexão
-            cThread.start()  # Inicia a thread
-            self.connections.append(c)  # Adiciona a nova conexão à lista de conexões
-            self.peers.append(a[0])  # Adiciona o endereço IP do cliente à lista de peers
-            print(str(a[0]) + ':' + str(a[1]), 'conectado')  # Exibe o endereço IP e porta do cliente conectado
-            self.sendPeers()  # Envia a lista de peers para todos os clientes conectados
+            c, a = self.sock.accept()
+            self.connections.append(c)
+            self.peers.append(a[0])
+            print(str(a[0]) + ':' + str(a[1]), "conectado")
+            threading.Thread(target=self.clientHandler, args=(c, a)).start()
 
-    def handler(self, c, a):
+    def clientHandler(self, c, a):
         while True:
-            data = c.recv(1024)  # Recebe dados do cliente
-            if data:
-                for connection in self.connections:
-                    connection.send(data)  # Encaminha os dados recebidos para todos os outros clientes
-
-                print(str(a[0]) + ':' + str(a[1]), 'enviou:', str(data, 'utf-8'))  # Exibe os dados enviados pelo cliente
-            else:
-                print(str(a[0]) + ':' + str(a[1]), 'desconectado')  # Exibe quando um cliente se desconecta
-                self.connections.remove(c)  # Remove a conexão da lista de conexões
-                self.peers.remove(a[0])  # Remove o endereço IP do cliente da lista de peers
-                c.close()  # Fecha a conexão com o cliente
-                self.sendPeers()  # Envia a lista atualizada de peers para os clientes restantes
+            try:
+                data = c.recv(1024)
+                if not data:
+                    print(str(a[0]) + ':' + str(a[1]), "desconectado")
+                    self.connections.remove(c)
+                    self.peers.remove(a[0])
+                    c.close()
+                    self.sendPeers()
+                    break
+                else:
+                    msg = data.decode('utf-8')
+                    print(f"{a[0]} diz: {msg}")
+                    self.broadcast(msg, c)
+            except:
                 break
+
+    def broadcast(self, msg, sender):
+        for connection in self.connections:
+            if connection != sender:
+                try:
+                    connection.send(bytes(msg, 'utf-8'))
+                except:
+                    continue
 
     def sendPeers(self):
         p = ""
         for peer in self.peers:
-            p = p + peer + ","  # Constrói uma string contendo os endereços IP dos peers
+            p = p + peer + "," 
 
         for connection in self.connections:
-            connection.send(bytes(p, "utf-8"))  # Envia a string de endereços IP para todos os clientes conectados
+            connection.send(b'\x11' + bytes(p, 'utf-8'))
 
-class Cliente:
-    def __init__(self, peer):
+    def promptMsg(self):
+        while True:
+            try:
+                msg = input("")
+                self.broadcast("[Servidor] " + msg, None)
+            except KeyboardInterrupt:
+                sys.exit(0)
+
+class Client:
+    def __init__(self, address):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((peer, 10000))  # Conecta-se ao peer especificado na porta 10000
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.connect((address, 10000))
 
-        self.name = input("Digite seu nome: ")  # Solicita ao usuário que insira seu nome
+        threading.Thread(target=self.receiveMsg).start()
+        self.sendMsg()
 
-        iThread = threading.Thread(target=self.sendMSG)
-        iThread.daemon = True
-        iThread.start()
-
+    def receiveMsg(self):
         while True:
-            data = self.sock.recv(1024)  # Recebe dados do servidor
-            if not data:
+            try:
+                data = self.sock.recv(1024)
+                if data:
+                    print(data.decode('utf-8'))
+                else:
+                    break
+            except:
                 break
-            else:
-                print(self.name, 'recebeu:', str(data, 'utf-8'))  # Exibe os dados recebidos
 
-    def sendMSG(self):
+    def sendMsg(self):
         while True:
-            msg = input("Digite uma mensagem: ")
-            self.sock.send(bytes(self.name + ": " + msg, 'utf-8'))  # Envia a mensagem para o servidor
+            try:
+                msg = input("")
+                self.sock.send(bytes(msg, 'utf-8'))
+            except:
+                break
 
-class P2P:
-    peers = ['127.0.0.1']  # Define uma lista de peers iniciais (apenas o localhost)
+class p2p:
+    peers = ['127.0.0.1']
 
 while True:
     try:
-        print("Tentando conectar...")
-        time.sleep(random.randint(1, 5))  # Aguarda um tempo aleatório antes de tentar se conectar
-        for peer in P2P.peers:
+        print("Tentando conectar ...")
+        for peer in p2p.peers:
             try:
-                cliente = Cliente(peer)  # Tenta conectar-se a cada peer na lista
-            except KeyboardInterrupt:  # Captura a exceção de interrupção do teclado (geralmente Ctrl+C)
-                sys.exit(0)  # Sai do programa
+                client = Client(peer)
+            except KeyboardInterrupt:
+                sys.exit(0)
             except:
-                if random.randint(1, 20) == 1:  # Se ocorrer uma exceção com probabilidade de 1/20
-                    try:
-                        server = Server()  # Tenta iniciar um servidor
-                    except KeyboardInterrupt:
-                        sys.exit(0)  # Sai do programa
-                    except:
-                        print("Não foi possível iniciar o servidor")  # Exibe uma mensagem se não for possível iniciar o servidor
+                pass
+
+        try:
+            server = Server()
+        except KeyboardInterrupt:
+            sys.exit(0)
+        except:
+            print("Não foi possível iniciar o servidor ...")
+
     except KeyboardInterrupt:
-        sys.exit(0)  # Sai do programa se uma interrupção do teclado for detectada
+        sys.exit(0)
